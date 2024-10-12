@@ -1,0 +1,9 @@
+openai
+langchain
+langgraph
+torch
+numpy
+pandas
+langchain-openai
+python-dotenv
+fireworks-ai
