@@ -14,6 +14,7 @@ pandas
 
 # API and web framework (if needed)
 flask
+wandb
 
 # Testing
 pytest
