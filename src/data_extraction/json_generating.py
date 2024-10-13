@@ -40,61 +40,6 @@ vector_index = VectorStoreIndex.from_vector_store(
 
 openai_client = OpenAIClient()
 
-# def get_waypoint(location_name: str) -> dict:
-#     response = openai_client.embeddings.create(
-#         model="text-embedding-ada-002",
-#         input=[location_name]
-#     )
-#     query_embedding = response.data[0].embedding
-#     results = index.query(vector=query_embedding, top_k=1, include_metadata=True)
-
-#     if results['matches']:
-#         metadata = results['matches'][0]['metadata']
-#         return {
-#             "name": metadata['location'],
-#             "waypoint": [float(metadata['waypoint_x']), float(metadata['waypoint_y']), float(metadata['waypoint_z'])]
-#         }
-#     else:
-#         return {"name": location_name, "waypoint": [0, 0, 0]}
-
-# def process_user_request(user_input: str) -> dict:
-#     tasks = user_input.split(" and then ")
-#     json_output = {"tasks": []}
-
-#     for task in tasks:
-#         action = "pickup"
-#         item = task.split("from")[0].strip().split()[-1]
-#         location_name = task.split("from")[-1].strip().split()[0]
-
-#         location_info = get_waypoint(location_name)
-
-#         task_json = {
-#             "action": action,
-#             "item": item,
-#             "location": {
-#                 "name": location_info["name"]
-#             },
-#             "waypoint": location_info["waypoint"]
-#         }
-
-#         if "coffee" in item.lower():
-#             preferences = {}
-#             if "large" in task.lower():
-#                 preferences["size"] = "large"
-#             if "latte" in task.lower():
-#                 preferences["type"] = "latte"
-#             if preferences:
-#                 task_json["preferences"] = preferences
-
-#         json_output["tasks"].append(task_json)
-
-#     return json_output
-
-# if __name__ == "__main__":
-#     user_request = "I need to pick up antibiotics from Pharmacy1 and then get a large latte from Starbucks."
-#     result = process_user_request(user_request)
-#     print(json.dumps(result, indent=2))
-
 def get_waypoint(location_name):
     response = openai_client.embeddings.create(
         model="text-embedding-ada-002",
@@ -161,3 +106,58 @@ def process_user_request(user_input):
 user_request = "Pick up a large latte from Starbucks."
 result = process_user_request(user_request)
 print(json.dumps(result, indent=2))
+
+# def get_waypoint(location_name: str) -> dict:
+#     response = openai_client.embeddings.create(
+#         model="text-embedding-ada-002",
+#         input=[location_name]
+#     )
+#     query_embedding = response.data[0].embedding
+#     results = index.query(vector=query_embedding, top_k=1, include_metadata=True)
+
+#     if results['matches']:
+#         metadata = results['matches'][0]['metadata']
+#         return {
+#             "name": metadata['location'],
+#             "waypoint": [float(metadata['waypoint_x']), float(metadata['waypoint_y']), float(metadata['waypoint_z'])]
+#         }
+#     else:
+#         return {"name": location_name, "waypoint": [0, 0, 0]}
+
+# def process_user_request(user_input: str) -> dict:
+#     tasks = user_input.split(" and then ")
+#     json_output = {"tasks": []}
+
+#     for task in tasks:
+#         action = "pickup"
+#         item = task.split("from")[0].strip().split()[-1]
+#         location_name = task.split("from")[-1].strip().split()[0]
+
+#         location_info = get_waypoint(location_name)
+
+#         task_json = {
+#             "action": action,
+#             "item": item,
+#             "location": {
+#                 "name": location_info["name"]
+#             },
+#             "waypoint": location_info["waypoint"]
+#         }
+
+#         if "coffee" in item.lower():
+#             preferences = {}
+#             if "large" in task.lower():
+#                 preferences["size"] = "large"
+#             if "latte" in task.lower():
+#                 preferences["type"] = "latte"
+#             if preferences:
+#                 task_json["preferences"] = preferences
+
+#         json_output["tasks"].append(task_json)
+
+#     return json_output
+
+# if __name__ == "__main__":
+#     user_request = "I need to pick up antibiotics from Pharmacy1 and then get a large latte from Starbucks."
+#     result = process_user_request(user_request)
+#     print(json.dumps(result, indent=2))
