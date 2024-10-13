@@ -1,11 +1,12 @@
 # Core libraries
-llama-index
+llama-index==0.10.68
 llama-hub
-llama-agents
+llama-agents==0.0.14
+llama-index-vector-stores-pinecone==0.1.2
 
 # Speech recognition
 SpeechRecognition
-pyaudio
+# pyaudio
 
 # Data processing
 numpy
@@ -26,6 +27,10 @@ langgraph
 torch
 langchain-openai
 python-dotenv
+fpdf
+pinecone-client
+PyPDF2
+pinecone
 
 # Simulator interface (placeholder, replace with actual Gazebo interface library)
 # gazebo-interface==1.0.0
