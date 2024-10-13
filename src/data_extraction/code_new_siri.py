@@ -9,23 +9,42 @@ from llama_index.llms.openai import OpenAI
 import json
 import streamlit as st
 import time
+from langchain.callbacks.manager import CallbackManager
+from langchain.callbacks.tracers import LangChainTracer
+from langchain_openai import ChatOpenAI
+from langsmith import Client
+import uuid
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 LLAMA_CLOUD_API_KEY = os.getenv('LLAMA_CLOUD_API_KEY')
+LANGCHAIN_API_KEY = os.getenv('LANGCHAIN_API_KEY')
+LANGCHAIN_PROJECT = os.getenv('LANGCHAIN_PROJECT')
 
-if not OPENAI_API_KEY or not LLAMA_CLOUD_API_KEY:
-    raise ValueError("API keys not found. Please ensure they're set correctly in the .env file.")
+if not all([OPENAI_API_KEY, LLAMA_CLOUD_API_KEY, LANGCHAIN_API_KEY, LANGCHAIN_PROJECT]):
+    raise ValueError("One or more required API keys or project name not found. Please ensure they're set correctly in the .env file.")
+
+print(f"LangSmith Project: {LANGCHAIN_PROJECT}")
 
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 parser = LlamaParse(api_key=LLAMA_CLOUD_API_KEY)
 
+langsmith_client = Client(api_key=LANGCHAIN_API_KEY)
+tracer = LangChainTracer(project_name=LANGCHAIN_PROJECT)
+callback_manager = CallbackManager([tracer])
+
 llm = OpenAI(
-    model='gpt-4',
+    model='gpt-3.5-turbo',
     temperature=0.0,
     max_tokens=500,
     api_key=OPENAI_API_KEY,
+)
+
+chat_model = ChatOpenAI(
+    temperature=0,
+    model_name="gpt-3.5-turbo",
+    callback_manager=callback_manager,
 )
 
 def voice_to_text():
@@ -47,13 +66,8 @@ def parse_command_for_locations(command: str) -> dict:
         {"role": "user", "content": f'Command: "{command}"'},
     ]
     try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=prompt,
-            max_tokens=500,
-            temperature=0,
-        )
-        result = response.choices[0].message.content.strip()
+        response = chat_model.generate([prompt])
+        result = response.generations[0][0].text.strip()
         return json.loads(result)
     except Exception as e:
         print(f"Error during OpenAI API call: {e}")
@@ -83,22 +97,14 @@ def find_similar_locations_with_gpt(parsed_text, pickup_location):
     """
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": message}],
-            max_tokens=500,
-            temperature=0
-        )
-        result = response.choices[0].message.content.strip()
+        response = chat_model.generate([[{"role": "user", "content": message}]])
+        result = response.generations[0][0].text.strip()
         return result
     except Exception as e:
         print(f"Error during OpenAI API call: {e}")
         return None
 
 def calculate_closest_pickup_location(similar_locations_text, dropoff_location_coords):
-    """
-    Instead of performing mathematical calculations, this function delegates the task to GPT-3.5-turbo.
-    """
     message = f"""
     The following are potential pickup locations with their coordinates:
 
@@ -112,17 +118,47 @@ def calculate_closest_pickup_location(similar_locations_text, dropoff_location_c
     """
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": message}],
-            max_tokens=150,
-            temperature=0
-        )
-        result = response.choices[0].message.content.strip()
+        response = chat_model.generate([[{"role": "user", "content": message}]])
+        result = response.generations[0][0].text.strip()
         return result
     except Exception as e:
         print(f"Error during OpenAI API call: {e}")
         return None
+
+def evaluate_run(run_id: str, max_retries=3, delay=2):
+    for attempt in range(max_retries):
+        try:
+            print(f"Attempting to fetch run data for run_id: {run_id}")
+            run = langsmith_client.read_run(run_id)
+            feedback = langsmith_client.list_feedback(run_ids=[run_id])
+            return run, feedback
+        except Exception as e:
+            if "Resource not found" in str(e) and attempt < max_retries - 1:
+                print(f"Run not found, retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                print(f"Error fetching run data: {e}")
+                return None, None
+
+def display_evaluation_results(run, feedback):
+    st.subheader("LangSmith Evaluation Results")
+
+    if run:
+        st.write(f"Run ID: {run.id}")
+        st.write(f"Start Time: {run.start_time}")
+        st.write(f"End Time: {run.end_time}")
+        st.write(f"Status: {run.status}")
+        st.write(f"Error: {run.error}")
+
+        if feedback:
+            st.write("Feedback:")
+            for fb in feedback:
+                st.write(f"- Score: {fb.score}")
+                st.write(f"  Comment: {fb.comment}")
+        else:
+            st.write("No feedback available for this run.")
+    else:
+        st.write("No run data available.")
 
 voice_to_text_tool = FunctionTool.from_defaults(fn=voice_to_text)
 parse_command_for_locations_tool = FunctionTool.from_defaults(fn=parse_command_for_locations)
@@ -137,9 +173,9 @@ agent5 = ReActAgent.from_tools(tools=[calculate_closest_pickup_location_tool], l
 
 def main():
     st.title("Delivery Command System")
-    
+
     input_mode = st.radio("Choose input mode:", ("Voice", "Text"))
-    
+
     if input_mode == "Voice":
         if st.button("Start Voice Input"):
             with st.spinner("Listening..."):
@@ -147,52 +183,65 @@ def main():
             st.success(f"Voice Command: {command}")
     else:
         command = st.text_input("Please enter your command:")
-    
+
     if command:
         st.write("\nProcessing the command...")
-        
+
+        run_id = str(uuid.uuid4())
+        callback_manager.add_handler(LangChainTracer(project_name=LANGCHAIN_PROJECT))
+
         with st.spinner("Extracting information..."):
             extracted_info = parse_command_for_locations(command)
-        
+
         st.subheader("Extracted Information:")
         st.json(extracted_info)
-        
+
         try:
             if extracted_info is None:
                 raise ValueError("Failed to extract information from the command.")
-            
+
             pickup_location = extracted_info.get('pickup_location')
             dropoff_location = extracted_info.get('dropoff_location')
-            
+
             if pickup_location and dropoff_location:
                 st.write(f"\nPickup Location: {pickup_location}")
                 st.write(f"Dropoff Location: {dropoff_location}")
-                
+
                 pdf_path = "/Users/spartan/Desktop/pack-project/pack/waypoints_new.pdf"
-                
+
                 with st.spinner("Parsing document..."):
                     parse_result = agent3.chat(f"Parse the document at '{pdf_path}' using the parse_document tool.")
                     parsed_text = parse_result.response
-                
+
                 with st.spinner(f"Finding locations similar to '{pickup_location}'..."):
                     similar_locations_result = agent4.chat(f"Find locations similar to '{pickup_location}' using the find_similar_locations_with_gpt tool with the following parsed text:\n\n{parsed_text}")
-                
+
                 st.subheader(f"Locations similar to '{pickup_location}':")
                 st.write(similar_locations_result.response)
-                
-                dropoff_location_coords = [6.19, -9.87, 1.92]  # You might want to make this dynamic
-                
+
+                dropoff_location_coords = [6.19, -9.87, 1.92]
+
                 with st.spinner("Calculating closest pickup location..."):
                     closest_location_result = agent5.chat(f"Use the calculate_closest_pickup_location tool to determine the closest pickup location from the following similar locations:\n\n{similar_locations_result.response}\n\nAnd the drop-off location coordinates: {dropoff_location_coords}")
-                
+
                 st.subheader(f"The closest pickup location to the drop-off point '{dropoff_location}' is:")
                 st.success(closest_location_result.response)
+
+                time.sleep(5)  # Add a 5-second delay before fetching run data
+
+                with st.spinner("Evaluating results with LangSmith..."):
+                    run, feedback = evaluate_run(run_id)
+                    if run:
+                        display_evaluation_results(run, feedback)
+                    else:
+                        st.error("Unable to fetch evaluation results from LangSmith.")
+
             else:
                 st.error("Could not extract pickup or dropoff location. Please try again with a different command.")
         except json.JSONDecodeError as e:
             st.error(f"Error parsing JSON: {e}")
         except Exception as e:
             st.error(f"Error processing the command: {str(e)}")
-            
+
 if __name__ == "__main__":
     main()
