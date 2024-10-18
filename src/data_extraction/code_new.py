@@ -13,6 +13,7 @@ from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks import LangChainTracer
 from langchain_openai import ChatOpenAI
 from langsmith import Client
+import streamlit.components.v1 as components  # Needed for HTML injection
 
 load_dotenv()
 
@@ -134,10 +135,44 @@ agent4 = ReActAgent.from_tools(tools=[find_similar_locations_with_gpt_tool], llm
 agent5 = ReActAgent.from_tools(tools=[calculate_closest_pickup_location_tool], llm=llm, verbose=True)  
 
 def main():
+    # Inject CSS to position the button
+    st.markdown(
+        """
+        <style>
+        .monitor-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 9999;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Define the Langsmith link
+    langsmith_link = "https://smith.langchain.com/o/c01c122f-3409-5e6c-aafd-09478d4963cd/projects/p/532e90ca-9058-4dda-a3c5-32081ea6e170?timeModel=%7B%22duration%22%3A%227d%22%7D"
+
+    # Place the button in a div with the class we just defined
+    st.markdown(
+        f"""
+        <div class="monitor-button">
+            <a href="{langsmith_link}" target="_blank">
+                <button style="background-color:#4CAF50; color:white; padding:10px 20px; border:none; cursor:pointer; font-size:16px;">
+                    Monitor Tokens
+                </button>
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.title("Delivery Command System")
-    
+
     input_mode = st.radio("Choose input mode:", ("Voice", "Text"))
-    
+
+    command = None  # Initialize command
+
     if input_mode == "Voice":
         if st.button("Start Voice Input"):
             with st.spinner("Listening..."):
@@ -145,52 +180,54 @@ def main():
             st.success(f"Voice Command: {command}")
     else:
         command = st.text_input("Please enter your command:")
-    
+
     if command:
         st.write("\nProcessing the command...")
-        
+
         with st.spinner("Extracting information..."):
             extracted_info = parse_command_for_locations(command)
-        
+
         st.subheader("Extracted Information:")
         st.json(extracted_info)
-        
+
         try:
             if extracted_info is None:
                 raise ValueError("Failed to extract information from the command.")
-            
+
             pickup_location = extracted_info.get('pickup_location')
             dropoff_location = extracted_info.get('dropoff_location')
-            
+
             if pickup_location and dropoff_location:
                 st.write(f"\nPickup Location: {pickup_location}")
                 st.write(f"Dropoff Location: {dropoff_location}")
-                
+
                 pdf_path = "/Users/spartan/Desktop/pack-project/pack/waypoints_new.pdf"
-                
+
                 with st.spinner("Parsing document..."):
                     parse_result = agent3.chat(f"Parse the document at '{pdf_path}' using the parse_document tool.")
                     parsed_text = parse_result.response
-                
+
                 with st.spinner(f"Finding locations similar to '{pickup_location}'..."):
                     similar_locations_result = agent4.chat(f"Find locations similar to '{pickup_location}' using the find_similar_locations_with_gpt tool with the following parsed text:\n\n{parsed_text}")
-                
+
                 st.subheader(f"Locations similar to '{pickup_location}':")
                 st.write(similar_locations_result.response)
-                
+
                 dropoff_location_coords = [6.19, -9.87, 1.92]
-                
+
                 with st.spinner("Calculating closest pickup location..."):
                     closest_location_result = agent5.chat(f"Use the calculate_closest_pickup_location tool to determine the closest pickup location from the following similar locations:\n\n{similar_locations_result.response}\n\nAnd the drop-off location coordinates: {dropoff_location_coords}")
-                
+
                 st.subheader(f"The closest pickup location to the drop-off point '{dropoff_location}' is:")
                 st.success(closest_location_result.response)
             else:
-                st.error("Could not extract pickup or dropoff location. Please try again with a different command.")
+                st.warning("Could not extract pickup or dropoff location. Please try again with a different command.")
         except json.JSONDecodeError as e:
             st.error(f"Error parsing JSON: {e}")
         except Exception as e:
             st.error(f"Error processing the command: {str(e)}")
+    else:
+        st.warning("Please provide a command to proceed.")
 
 if __name__ == "__main__":
     main()
